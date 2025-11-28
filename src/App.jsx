@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useZxing } from "react-zxing"; // Libreria Scanner Reale
 import { Truck, Navigation, Fuel, Save, User, LogOut, MapPin, Camera, X, Check, Clock, Wifi, ChevronDown, Lock, Droplet, CreditCard, ArrowRight, AlertTriangle, RefreshCw, History, Users, Calendar, AlertOctagon, FileText, Radio } from 'lucide-react';
 
 // ==========================================================================================
@@ -74,7 +75,6 @@ const apiFetchStations = async () => {
   } catch (error) { return []; }
 };
 
-// Funzione Sync che cerca aggiornamenti per l'autista corrente
 const apiCheckRemoteUpdates = async (driverName) => {
   if (isDemoMode()) return { found: false };
   try {
@@ -157,6 +157,54 @@ const Input = ({ label, type = "text", value, onChange, placeholder, autoFocus, 
 );
 
 // --- MODULI SENSORI & MODALI ---
+
+const BarcodeScanner = ({ onScan, onClose }) => {
+  // --- CONFIGURAZIONE Z-XING (Scanner Reale) ---
+  const { ref } = useZxing({
+    onDecodeResult(result) {
+      const code = result.getText();
+      // Beep tattile se supportato
+      if (navigator.vibrate) navigator.vibrate(200);
+      onScan(code);
+    },
+    onError(error) {
+        // Gestiamo errori silenziosamente per non bloccare il flusso
+    },
+    // Forza la fotocamera posteriore (environment)
+    constraints: {
+        video: {
+            facingMode: "environment" 
+        }
+    }
+  });
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+       <div className="absolute top-0 w-full p-4 flex justify-between z-10 text-white bg-gradient-to-b from-black/80 to-transparent">
+         <span className="font-bold tracking-wider">SCANNER ATTIVO</span>
+         <button onClick={onClose} className="bg-white/20 p-2 rounded-full"><X size={20}/></button>
+       </div>
+       
+       <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+          {/* Feed Video Reale */}
+          <video ref={ref} className="w-full h-full object-cover opacity-90" />
+          
+          {/* Mirino Grafico Overlay */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+             <div className="w-80 h-48 border-2 border-red-500/50 rounded-xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
+                <div className="w-full h-0.5 bg-red-500 absolute top-1/2 -translate-y-1/2 animate-pulse shadow-[0_0_20px_red]"></div>
+                <div className="absolute top-2 left-0 w-full text-center">
+                   <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded">LIVE</span>
+                </div>
+             </div>
+          </div>
+          <p className="absolute bottom-20 text-white/90 text-sm font-medium px-6 py-3 text-center bg-black/60 backdrop-blur-sm rounded-full mx-4">
+             Inquadra il codice a barre o QR Code
+          </p>
+       </div>
+    </div>
+  );
+};
 
 const DriverHistoryModal = ({ matricola, onClose }) => {
   const [history, setHistory] = useState([]);
@@ -279,22 +327,6 @@ const NFCScanner = ({ onRead, onCancel }) => {
         <p className="text-gray-500 text-sm mb-6">Tocca il retro del dispositivo sul tag.</p>
         {status !== 'success' && <button onClick={simulateTouch} className="text-xs text-blue-500 font-bold underline">(SIMULA TOCCO)</button>}
       </div>
-    </div>
-  );
-};
-
-const BarcodeScanner = ({ onScan, onClose }) => {
-  const videoRef = useRef(null);
-  useEffect(() => {
-    let stream = null;
-    const start = async () => { try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); if(videoRef.current) videoRef.current.srcObject = stream; setTimeout(() => onScan('12345'), 2500); } catch(e){} };
-    start(); return () => { if(stream) stream.getTracks().forEach(t=>t.stop()); };
-  }, []);
-  return (
-    <div className="fixed inset-0 z-[60] bg-black flex flex-col">
-       <div className="absolute top-0 w-full p-4 flex justify-between z-10 text-white bg-gradient-to-b from-black/80 to-transparent"><span className="font-bold">SCANNER MATRICOLA</span><button onClick={onClose}><X size={20}/></button></div>
-       <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover opacity-60" />
-       <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-72 h-48 border-2 border-white/50 rounded-xl relative"><div className="w-full h-0.5 bg-red-500 absolute top-1/2 -translate-y-1/2 animate-pulse shadow-[0_0_10px_red]"></div></div></div>
     </div>
   );
 };
@@ -471,7 +503,7 @@ const ActiveShiftScreen = ({ session, onEndShift, onAddFuel, onSessionUpdate }) 
   const [showFuelModal, setShowFuelModal] = useState(false);
   const [lastCheck, setLastCheck] = useState(Date.now());
 
-  // --- POLLING SINCRONIZZAZIONE ---
+  // --- POLLING SINCRONIZZAZIONE COMPLETA (KM + TARGA) ---
   useEffect(() => {
     const timer = setInterval(() => {
         const update = () => {
@@ -492,7 +524,7 @@ const ActiveShiftScreen = ({ session, onEndShift, onAddFuel, onSessionUpdate }) 
             const updates = {};
             let hasUpdate = false;
 
-            // Controllo aggiornamento KM
+            // Controllo aggiornamento KM e rimozione anomalia
             if (res.startKm && res.startKm !== session.startKm) {
                 updates.startKm = res.startKm;
                 hasUpdate = true;
@@ -511,7 +543,7 @@ const ActiveShiftScreen = ({ session, onEndShift, onAddFuel, onSessionUpdate }) 
     }, 15000);
 
     return () => { clearInterval(timer); clearInterval(syncTimer); };
-  }, [session]); // Dipendenza session per avere sempre i dati aggiornati
+  }, [session]);
 
   const handleFuelSave = async (data) => { 
     await apiLogFuel(session, data);
