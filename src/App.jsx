@@ -15,10 +15,6 @@ const API_URL = "https://script.google.com/macros/s/AKfycbz8mQgiROz0RkNHE5gSbUky
 // Dati di fallback per test (se API non raggiungibile)
 const MOCK_DATA = {
     drivers: { '12345': 'Mario Rossi (Demo)', '67890': 'Luigi Verdi (Demo)' },
-    driversList: [
-       { matricola: '12345', name: 'Mario Rossi' },
-       { matricola: '67890', name: 'Luigi Verdi' }
-    ],
     vehicles: [
         { targa: 'AA 123 BB', modello: 'Fiat Ducato (Demo)', lastKm: 154300, lastDriver: 'Luigi V.' },
         { targa: 'CC 456 DD', modello: 'Iveco Daily (Demo)', lastKm: 89000, lastDriver: 'Mario R.' }
@@ -38,15 +34,6 @@ const apiFetchDriverName = async (matricola) => {
   } catch (error) {
     return { success: false, error: "Errore connessione" };
   }
-};
-
-const apiFetchDriversList = async () => {
-  if (isDemoMode()) return MOCK_DATA.driversList;
-  try {
-    const res = await fetch(`${API_URL}?action=getDriversList`);
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  } catch (error) { return []; }
 };
 
 const apiFetchVehicles = async () => {
@@ -311,6 +298,24 @@ const RefuelingModal = ({ onClose, onSave }) => {
   );
 };
 
+const NFCScanner = ({ onRead, onCancel }) => {
+  const [status, setStatus] = useState('scanning');
+  const simulateTouch = () => { setStatus('success'); if(navigator.vibrate) navigator.vibrate([50,50,50]); setTimeout(() => onRead('AA 123 BB'), 800); };
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center p-6 animate-in fade-in">
+      <div className="bg-white w-full max-w-sm rounded-3xl p-8 text-center relative">
+        <button onClick={onCancel} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
+        <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center mb-6 ${status === 'success' ? 'bg-green-100 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+          {status === 'success' ? <Check size={40} /> : <Wifi size={40} className="rotate-90 animate-pulse" />}
+        </div>
+        <h3 className="text-xl font-bold mb-2 text-gray-900">Avvicina al Tag NFC</h3>
+        <p className="text-gray-500 text-sm mb-6">Tocca il retro del dispositivo sul tag.</p>
+        {status !== 'success' && <button onClick={simulateTouch} className="text-xs text-blue-500 font-bold underline">(SIMULA TOCCO)</button>}
+      </div>
+    </div>
+  );
+};
+
 // --- SCHERMATE DELL'APP ---
 
 const LoginScreen = ({ onLogin }) => {
@@ -318,22 +323,10 @@ const LoginScreen = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [imgError, setImgError] = useState(false);
-  const [driversList, setDriversList] = useState([]);
   
-  useEffect(() => {
-    apiFetchDriversList().then(setDriversList);
-  }, []);
-
-  const performLogin = async (code, preloadedName = null) => {
+  const performLogin = async (code) => {
     if(!code) return;
     setLoading(true);
-    
-    if (preloadedName) {
-        setLoading(false);
-        onLogin({ matricola: code, name: preloadedName });
-        return;
-    }
-
     const res = await apiFetchDriverName(code);
     setLoading(false);
     if(res.success) onLogin({ matricola: code, name: res.name });
@@ -362,22 +355,6 @@ const LoginScreen = ({ onLogin }) => {
             <div className="flex gap-2 mb-4">
                 <input className="w-full bg-gray-100 border-none rounded-xl p-4 font-bold text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ID Matricola" value={matricola} onChange={(e) => setMatricola(e.target.value)} />
                 <button onClick={() => performLogin(matricola)} disabled={loading} className="bg-blue-600 text-white px-6 rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50">{loading ? '...' : <Check />}</button>
-            </div>
-
-            <div className="relative">
-                <select 
-                    onChange={(e) => {
-                        const selected = driversList.find(d => d.matricola === e.target.value);
-                        if (selected) performLogin(selected.matricola, selected.name);
-                    }}
-                    className="w-full p-4 bg-gray-50 border-2 border-gray-100 focus:border-blue-500 rounded-xl appearance-none font-bold text-gray-600 focus:text-gray-900 outline-none transition-colors"
-                >
-                    <option value="">-- Oppure Seleziona Nome --</option>
-                    {driversList.map(d => (
-                        <option key={d.matricola} value={d.matricola}>{d.name}</option>
-                    ))}
-                </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20} />
             </div>
 
           </div>
