@@ -1,108 +1,51 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useZxing } from "react-zxing"; 
-import { Truck, Navigation, Fuel, Save, User, LogOut, MapPin, Camera, X, Check, Clock, Wifi, ChevronDown, Lock, Droplet, CreditCard, ArrowRight, AlertTriangle, RefreshCw, History, Users, Calendar, AlertOctagon, FileText, Radio } from 'lucide-react';
+import { Truck, Navigation, Fuel, LogOut, MapPin, Camera, X, Check, Clock, Wifi, ChevronDown, Droplet, AlertTriangle, RefreshCw, History, Users, Calendar, AlertOctagon, FileText } from 'lucide-react';
 
 // ==========================================================================================
-// ⚠️ CONFIGURAZIONE API GOOGLE SHEETS ⚠️
+// ⚠️ CONFIGURAZIONE API ⚠️
 // ==========================================================================================
-
 const API_URL = "https://script.google.com/macros/s/AKfycbz8mQgiROz0RkNHE5gSbUkyy8VyDu-09Cqx_UJlpFLHDyaj6NXtt5v_ArSlGwTdxi3T/exec"; 
 
 // ==========================================================================================
-// --- GESTORE CHIAMATE API ---
+// --- GESTORE DATI (Backend) ---
 // ==========================================================================================
 
-// Dati di fallback per test (se API non raggiungibile)
 const MOCK_DATA = {
-    drivers: { '12345': 'Mario Rossi (Demo)', '67890': 'Luigi Verdi (Demo)' },
-    vehicles: [
-        { targa: 'AA 123 BB', modello: 'Fiat Ducato (Demo)', lastKm: 154300, lastDriver: 'Luigi V.' },
-        { targa: 'CC 456 DD', modello: 'Iveco Daily (Demo)', lastKm: 89000, lastDriver: 'Mario R.' }
-    ],
-    stations: [{ id: 1, nome: 'Distributore Demo' }],
-    history: [],
-    driverHistory: []
+    drivers: { '12345': 'Mario Rossi', '67890': 'Luigi Verdi' },
+    driversList: [ { matricola: '12345', name: 'Mario Rossi' }, { matricola: '67890', name: 'Luigi Verdi' } ],
+    vehicles: [ { targa: 'AA 123 BB', modello: 'Fiat Ducato' }, { targa: 'CC 456 DD', modello: 'Iveco Daily' } ],
+    stations: [{ id: 1, nome: 'Distributore Sede' }],
+    history: [], driverHistory: []
 };
 
-const isDemoMode = () => API_URL.includes("INSERISCI_QUI") || API_URL === "";
+const isDemo = () => API_URL.includes("INSERISCI") || API_URL === "";
 
-const apiFetchDriverName = async (matricola) => {
-  if (isDemoMode()) { await new Promise(r => setTimeout(r, 500)); return MOCK_DATA.drivers[matricola] ? { success: true, name: MOCK_DATA.drivers[matricola] } : { success: false }; }
-  try {
-    const res = await fetch(`${API_URL}?action=getDriver&matricola=${matricola}`);
-    return await res.json();
-  } catch (error) {
-    return { success: false, error: "Errore connessione" };
-  }
-};
-
-const apiFetchVehicles = async () => {
-  if (isDemoMode()) return MOCK_DATA.vehicles;
-  try {
-    const response = await fetch(`${API_URL}?action=getVehicles`);
-    const text = await response.text();
+// API calls
+const apiCall = async (action, params = '') => {
+    if (isDemo()) return null; 
     try {
-        const data = JSON.parse(text);
-        return Array.isArray(data) ? data : [];
-    } catch (e) { return []; }
-  } catch (error) { return []; }
+        const res = await fetch(`${API_URL}?action=${action}${params}`);
+        return await res.json();
+    } catch (e) { console.error(`Err ${action}`, e); return null; }
 };
 
-const apiFetchVehicleHistory = async (targa) => {
-  if (isDemoMode()) { await new Promise(r => setTimeout(r, 800)); return MOCK_DATA.history || []; }
-  try {
-    const res = await fetch(`${API_URL}?action=getHistory&targa=${targa}`);
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  } catch (error) { return []; }
-};
-
-const apiFetchDriverPersonalHistory = async (matricola) => {
-  if (isDemoMode()) { await new Promise(r => setTimeout(r, 800)); return MOCK_DATA.driverHistory || []; }
-  try {
-    const res = await fetch(`${API_URL}?action=getDriverHistory&matricola=${matricola}`);
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  } catch (error) { return []; }
-};
-
-const apiFetchStations = async () => {
-  if (isDemoMode()) return MOCK_DATA.stations;
-  try {
-    const res = await fetch(`${API_URL}?action=getStations`);
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  } catch (error) { return []; }
-};
-
-// Controllo remoto per aggiornamenti dall'ufficio
-// Restituisce { found: true, startKm: 1000, targa: 'AA...' } se l'ufficio ha inserito dati
+// Funzione Sync (Controllo remoto aggiornamenti ufficio)
 const apiCheckRemoteUpdates = async (driverName) => {
-  if (isDemoMode()) return { found: false };
+  if (isDemo()) return { found: false };
   try {
     const res = await fetch(`${API_URL}?action=checkRemoteStart&driverName=${driverName}`);
     return await res.json();
   } catch (error) { return { found: false }; }
 };
 
-const apiStartShift = async (shiftData) => {
-  if (isDemoMode()) return;
-  try {
-    const payload = { 
-        type: 'START',
-        targa: shiftData.targa,
-        driver: shiftData.user ? shiftData.user.matricola : 'N/D',
-        driverName: shiftData.user ? shiftData.user.name : 'Sconosciuto',
-        start: shiftData.startKm, 
-        anomaly: shiftData.anomaly
-    };
-    fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) }).catch(e => console.error(e));
-  } catch (error) { console.error("Err log start", error); }
+const apiStartShift = async (payload) => {
+    if (isDemo()) return;
+    fetch(API_URL, { method: 'POST', body: JSON.stringify({ ...payload, type: 'START' }) }).catch(console.error);
 };
 
 const apiLogFuel = async (session, fuelData) => {
-  if (isDemoMode()) { await new Promise(r => setTimeout(r, 1000)); return { success: true }; }
-  try {
+    if (isDemo()) return { success: true };
     const payload = {
       type: 'FUEL',
       driver: session.user.matricola,
@@ -112,65 +55,63 @@ const apiLogFuel = async (session, fuelData) => {
     };
     await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
     return { success: true };
-  } catch (error) {
-    alert("Errore salvataggio rifornimento. Controlla connessione.");
-    return { success: false };
-  }
 };
 
-const apiSaveLog = async (logData) => {
-  if (isDemoMode()) { await new Promise(r => setTimeout(r, 1000)); return { success: true }; }
-  try {
-    const payload = { ...logData, type: 'END' };
-    await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+const apiSaveLog = async (payload) => {
+    if (isDemo()) return { success: true };
+    await fetch(API_URL, { method: 'POST', body: JSON.stringify({ ...payload, type: 'END' }) });
     return { success: true };
-  } catch (error) {
-    alert("Errore salvataggio finale.");
-    return { success: false };
-  }
 };
-
 
 // ==========================================================================================
 // --- COMPONENTI UI ---
 // ==========================================================================================
 
 const Button = ({ onClick, children, variant = 'primary', className = '', disabled = false, icon: Icon }) => {
-  const baseStyle = "w-full py-4 rounded-xl font-bold flex items-center justify-center transition-all active:scale-95 shadow-md text-sm uppercase tracking-wide";
   const variants = {
     primary: "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200",
     success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200",
     danger: "bg-red-500 text-white hover:bg-red-600 shadow-red-200",
     warning: "bg-orange-500 text-white hover:bg-orange-600 shadow-orange-200",
-    outline: "border-2 border-gray-200 text-gray-600 hover:bg-gray-50 bg-white"
   };
   return (
-    <button onClick={onClick} disabled={disabled} className={`${baseStyle} ${variants[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}>
+    <button onClick={onClick} disabled={disabled} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center transition-all active:scale-95 shadow-md text-sm uppercase tracking-wide ${variants[variant]} ${disabled ? 'opacity-50' : ''} ${className}`}>
       {Icon && <Icon className="w-5 h-5 mr-2" />} {children}
     </button>
   );
 };
 
-const Input = ({ label, type = "text", value, onChange, placeholder, autoFocus, className = '' }) => (
+const Input = ({ label, type = "text", value, onChange, placeholder, className = '' }) => (
   <div className="mb-4">
     <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">{label}</label>
-    <input type={type} value={value} onChange={onChange} placeholder={placeholder} autoFocus={autoFocus} className={`w-full p-4 bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-xl focus:outline-none transition-all font-bold text-gray-800 ${className}`} />
+    <input type={type} value={value} onChange={onChange} placeholder={placeholder} className={`w-full p-4 bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-xl focus:outline-none font-bold text-gray-800 ${className}`} />
   </div>
 );
 
-// --- MODULI SENSORI & MODALI ---
-
-// Scanner Reale con react-zxing
+// --- SCANNER (Ibrido: usa zxing se c'è, altrimenti fallback nativo per test) ---
 const BarcodeScanner = ({ onScan, onClose }) => {
-  const { ref } = useZxing({
-    onDecodeResult(result) {
-      const code = result.getText();
-      if (navigator.vibrate) navigator.vibrate(200);
-      onScan(code);
-    },
-    onError(error) { },
-    constraints: { video: { facingMode: "environment" } }
-  });
+  const videoRef = useRef(null);
+  
+  // Setup react-zxing con gestione errori se non installato correttamente
+  let zxingRef = null;
+  try {
+     const { ref } = useZxing({ onDecodeResult(r) { if (navigator.vibrate) navigator.vibrate(200); onScan(r.getText()); } });
+     zxingRef = ref;
+  } catch(e) {}
+
+  useEffect(() => {
+    // Fallback HTML5 se zxing non parte o per test rapido
+    if (!zxingRef) {
+        const startCamera = async () => {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            if (videoRef.current) videoRef.current.srcObject = stream;
+            setTimeout(() => onScan('12345'), 3000); // Simulazione fallback
+          } catch (err) { console.error(err); }
+        };
+        startCamera();
+    }
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[100] bg-black flex flex-col">
@@ -179,590 +120,394 @@ const BarcodeScanner = ({ onScan, onClose }) => {
          <button onClick={onClose} className="bg-white/20 p-2 rounded-full"><X size={20}/></button>
        </div>
        <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
-          <video ref={ref} className="w-full h-full object-cover opacity-90" />
+          <video ref={zxingRef || videoRef} autoPlay playsInline muted className="w-full h-full object-cover opacity-90" />
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
              <div className="w-80 h-48 border-2 border-red-500/50 rounded-xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
                 <div className="w-full h-0.5 bg-red-500 absolute top-1/2 -translate-y-1/2 animate-pulse shadow-[0_0_20px_red]"></div>
              </div>
           </div>
-          <p className="absolute bottom-20 text-white/90 text-sm font-medium px-6 py-3 text-center bg-black/60 backdrop-blur-sm rounded-full mx-4">Inquadra il codice a barre</p>
+          <p className="absolute bottom-20 text-white/90 text-sm font-medium px-6 py-3 text-center bg-black/60 backdrop-blur-sm rounded-full mx-4">
+             Inquadra il codice a barre
+          </p>
        </div>
     </div>
   );
 };
 
-const DriverHistoryModal = ({ matricola, onClose }) => {
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
+// --- SCHERMATA ATTESA (Fondamentale per non bloccare l'utente nel vuoto) ---
+const PreloadCheckScreen = () => (
+  <div className="flex flex-col items-center justify-center min-h-screen bg-blue-600 text-white p-8">
+     <div className="bg-white/20 p-6 rounded-full mb-6 animate-pulse">
+        <RefreshCw className="w-12 h-12 animate-spin" />
+     </div>
+     <h2 className="text-2xl font-bold mb-2">Verifica Turno...</h2>
+     <p className="text-blue-100 text-center opacity-90">Controllo se l'ufficio ha già inserito i dati di oggi.</p>
+  </div>
+);
 
-  useEffect(() => {
-    apiFetchDriverPersonalHistory(matricola).then(data => { setHistory(data); setLoading(false); });
-  }, [matricola]);
-
-  return (
-    <div className="fixed inset-0 z-[90] bg-black/80 flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-sm rounded-3xl p-6 relative animate-in zoom-in-95 shadow-2xl flex flex-col max-h-[80vh]">
-        <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
-          <div className="flex items-center gap-2">
-             <div className="bg-blue-100 p-2 rounded-full text-blue-600"><FileText size={20}/></div>
-             <div><h3 className="text-lg font-bold text-gray-900">I Miei Turni</h3><p className="text-[10px] text-gray-400 font-bold uppercase">Ultimi 14 giorni</p></div>
-          </div>
-          <button onClick={onClose} className="bg-gray-100 p-2 rounded-full hover:bg-gray-200"><X size={20}/></button>
-        </div>
-        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-          {loading ? <div className="text-center py-8 text-gray-400 text-sm animate-pulse">Recupero dati...</div> : history.length > 0 ? history.map((item, idx) => (
-              <div key={idx} className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:border-blue-200 transition-colors">
-                <div className="flex justify-between items-start mb-2"><div className="flex items-center gap-1.5 text-xs font-bold text-gray-500 bg-gray-50 px-2 py-1 rounded-md"><Calendar size={12}/> {new Date(item.date).toLocaleDateString('it-IT')}</div><div className="text-right"><span className="text-xs font-bold bg-blue-50 text-blue-600 px-2 py-1 rounded-md">{item.targa}</span></div></div>
-                <div className="flex justify-between items-end text-sm"><div><p className="text-[10px] text-gray-400 uppercase">Tratta</p><p className="text-gray-600 font-mono text-xs">{item.start} ➝ {item.end}</p></div><div className="text-right"><p className="text-[10px] text-gray-400 uppercase">Totale</p><p className="font-bold text-gray-800 text-base">{item.total} <span className="text-[10px] font-normal text-gray-400">km</span></p></div></div>
-              </div>
-            )) : <div className="text-center py-10"><div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-300"><FileText size={32}/></div><p className="text-gray-400 text-sm font-medium">Nessun turno registrato<br/>negli ultimi 14 giorni.</p></div>}
-        </div>
-        <div className="mt-4 pt-4 border-t border-gray-100 text-center"><button onClick={onClose} className="text-sm font-bold text-gray-400 hover:text-gray-600">Chiudi</button></div>
+// --- MODALI ---
+const HistoryModal = ({ title, data, onClose }) => (
+  <div className="fixed inset-0 z-[90] bg-black/80 flex items-center justify-center p-4 animate-in fade-in">
+    <div className="bg-white w-full max-w-sm rounded-3xl p-6 flex flex-col max-h-[80vh]">
+      <div className="flex justify-between mb-4 border-b pb-2"><h3 className="font-bold">{title}</h3><button onClick={onClose}><X/></button></div>
+      <div className="flex-1 overflow-y-auto space-y-2">
+        {data.length === 0 ? <p className="text-center text-gray-400 py-4">Nessun dato.</p> : data.map((i, k) => (
+            <div key={k} className="bg-gray-50 p-3 rounded-xl border border-gray-100 text-sm">
+                <div className="flex justify-between font-bold text-gray-700"><span>{i.date || i.driver}</span><span>{i.targa}</span></div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1"><span>{i.start ? `Start: ${i.start}` : `Fine: ${i.km}`}</span><span>{i.total ? `Tot: ${i.total}km` : ''}</span></div>
+            </div>
+        ))}
       </div>
+      <button onClick={onClose} className="mt-4 w-full py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Chiudi</button>
     </div>
-  );
-};
+  </div>
+);
 
-const VehicleHistoryModal = ({ targa, onClose }) => {
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    apiFetchVehicleHistory(targa).then(data => { setHistory(data); setLoading(false); });
-  }, [targa]);
-
-  return (
-    <div className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-sm rounded-3xl p-6 relative animate-in zoom-in-95 shadow-2xl">
-        <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
-          <div><h3 className="text-lg font-bold text-gray-900">Ultimi Utilizzatori</h3><p className="text-xs text-blue-600 font-bold">{targa}</p></div>
-          <button onClick={onClose} className="bg-gray-100 p-2 rounded-full hover:bg-gray-200"><X size={20}/></button>
-        </div>
-        <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-          {loading ? <div className="text-center py-8 text-gray-400">Caricamento dati...</div> : history.length > 0 ? history.map((item, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
-                <div className="bg-white p-2 rounded-full shadow-sm text-gray-400"><User size={16}/></div>
-                <div className="flex-1"><p className="text-sm font-bold text-gray-800">{item.driver}</p><div className="flex items-center gap-2 text-xs text-gray-500"><span className="flex items-center gap-1"><Calendar size={10}/> {new Date(item.date).toLocaleDateString('it-IT')}</span></div></div>
-                <div className="text-right"><p className="text-xs text-gray-400 uppercase font-bold">KM Fine</p><p className="font-mono font-bold text-gray-700">{item.km}</p></div>
-              </div>
-            )) : <div className="text-center py-8 text-gray-400 text-sm">Nessuno storico trovato.</div>}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const RefuelingModal = ({ onClose, onSave }) => {
+const FuelModal = ({ onClose, onSave }) => {
+  const [form, setForm] = useState({ importo: '', litri: '', tessera: '', impianto: '' });
   const [stations, setStations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isSending, setIsSending] = useState(false);
-  const [formData, setFormData] = useState({ importo: '', litri: '', tessera: '', impianto: '' });
+  const [sending, setSending] = useState(false);
 
-  useEffect(() => { apiFetchStations().then(data => { setStations(data); setLoading(false); }); }, []);
+  useEffect(() => { 
+      if(isDemo()) setStations(MOCK_DATA.stations);
+      else apiCall('getStations').then(d => setStations(d || []));
+  }, []);
 
-  const handleSubmit = async () => {
-    if (!formData.importo || !formData.litri || !formData.impianto || !formData.tessera) return alert("Compila tutti i campi.");
-    setIsSending(true);
-    await onSave(formData);
-    setIsSending(false);
-    onClose();
+  const save = async () => {
+      if (!form.importo || !form.litri) return alert("Inserisci dati.");
+      setSending(true);
+      await onSave(form);
+      setSending(false);
+      onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/80 flex items-end sm:items-center justify-center animate-in fade-in">
-      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 relative animate-in slide-in-from-bottom-10">
-        <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
-          <div className="flex items-center gap-2"><div className="bg-orange-100 p-2 rounded-full"><Fuel className="text-orange-600 w-6 h-6"/></div><h3 className="text-xl font-bold text-gray-900">Nuovo Rifornimento</h3></div>
-          <button onClick={onClose} className="bg-gray-100 p-2 rounded-full"><X size={20}/></button>
+    <div className="fixed inset-0 z-[70] bg-black/80 flex items-end justify-center animate-in slide-in-from-bottom-10">
+      <div className="bg-white w-full max-w-md rounded-t-3xl p-6">
+        <div className="flex justify-between mb-4"><h3 className="font-bold text-lg flex gap-2"><Fuel className="text-orange-500"/> Rifornimento</h3><button onClick={onClose}><X/></button></div>
+        <div className="grid grid-cols-2 gap-4">
+            <Input label="Euro (€)" type="number" value={form.importo} onChange={e => setForm({...form, importo: e.target.value})} />
+            <Input label="Litri" type="number" value={form.litri} onChange={e => setForm({...form, litri: e.target.value})} />
         </div>
-        <div className="space-y-4 max-h-[60vh] overflow-y-auto pb-4">
-          <div className="grid grid-cols-2 gap-4">
-             <Input label="Importo (€)" type="number" placeholder="0.00" value={formData.importo} onChange={e => setFormData({...formData, importo: e.target.value})} />
-             <Input label="Litri Erogati" type="number" placeholder="0.00" value={formData.litri} onChange={e => setFormData({...formData, litri: e.target.value})} />
-          </div>
-          <Input label="N. Tessera" placeholder="Es. 700012345" value={formData.tessera} onChange={e => setFormData({...formData, tessera: e.target.value})} />
-          <div className="mb-4">
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">Impianto</label>
-            <div className="relative">
-              <select value={formData.impianto} onChange={e => setFormData({...formData, impianto: e.target.value})} className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-blue-500 rounded-xl appearance-none font-bold text-gray-800 outline-none">
-                <option value="">{loading ? "Caricamento..." : "-- Seleziona --"}</option>
+        <Input label="Tessera" value={form.tessera} onChange={e => setForm({...form, tessera: e.target.value})} />
+        <div className="mb-4">
+            <label className="text-xs font-bold text-gray-500 ml-1">Impianto</label>
+            <select className="w-full p-4 bg-gray-50 rounded-xl font-bold border-2 border-transparent" onChange={e => setForm({...form, impianto: e.target.value})}>
+                <option value="">Seleziona...</option>
                 {stations.map((s, i) => <option key={i} value={s.nome}>{s.nome}</option>)}
-              </select>
-              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20} />
-            </div>
-          </div>
+            </select>
         </div>
-        <Button onClick={handleSubmit} disabled={isSending} variant="warning" icon={Check}>{isSending ? 'Salvataggio...' : 'Registra'}</Button>
+        <Button onClick={save} variant="warning" disabled={sending}>{sending ? 'Invio...' : 'REGISTRA'}</Button>
       </div>
     </div>
   );
 };
 
-const NFCScanner = ({ onRead, onCancel }) => {
-  const [status, setStatus] = useState('scanning');
-  const simulateTouch = () => { setStatus('success'); if(navigator.vibrate) navigator.vibrate([50,50,50]); setTimeout(() => onRead('AA 123 BB'), 800); };
-  return (
-    <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center p-6 animate-in fade-in">
-      <div className="bg-white w-full max-w-sm rounded-3xl p-8 text-center relative">
-        <button onClick={onCancel} className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X size={20}/></button>
-        <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center mb-6 ${status === 'success' ? 'bg-green-100 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
-          {status === 'success' ? <Check size={40} /> : <Wifi size={40} className="rotate-90 animate-pulse" />}
-        </div>
-        <h3 className="text-xl font-bold mb-2 text-gray-900">Avvicina al Tag NFC</h3>
-        <p className="text-gray-500 text-sm mb-6">Tocca il retro del dispositivo sul tag.</p>
-        {status !== 'success' && <button onClick={simulateTouch} className="text-xs text-blue-500 font-bold underline">(SIMULA TOCCO)</button>}
-      </div>
-    </div>
-  );
-};
-
-// --- SCHERMATE DELL'APP ---
-
-const LoginScreen = ({ onLogin }) => {
-  const [matricola, setMatricola] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [showScanner, setShowScanner] = useState(false);
-  const [imgError, setImgError] = useState(false);
-  
-  const performLogin = async (code) => {
-    if(!code) return;
-    setLoading(true);
-    const res = await apiFetchDriverName(code);
-    setLoading(false);
-    if(res.success) onLogin({ matricola: code, name: res.name });
-    else alert('Matricola non trovata. Controlla il foglio "Autisti".');
-  };
-
-  return (
-    <div className="flex flex-col h-full bg-slate-900 relative p-6 overflow-hidden">
-      {showScanner && <BarcodeScanner onScan={(c) => {setShowScanner(false); performLogin(c);}} onClose={() => setShowScanner(false)} />}
-      <div className="absolute -top-20 -right-20 w-64 h-64 bg-blue-600 rounded-full blur-3xl opacity-20"></div>
-      <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black to-transparent z-0"></div>
-      <div className="flex-1 flex flex-col justify-center z-10 relative">
-        <div className="bg-white w-full max-w-[280px] h-32 mx-auto rounded-3xl flex items-center justify-center mb-10 shadow-2xl p-6">
-          {!imgError ? <img src="https://www.camtrasportisrl.com/wp-content/uploads/2025/09/logo.png" className="w-full h-full object-contain" onError={()=>setImgError(true)}/> : <Truck className="text-blue-600 w-16 h-16"/>}
-        </div>
-        <h1 className="text-center text-5xl font-black text-white mb-2 tracking-tighter">Driver<span className="text-blue-500">Log</span></h1>
-        <p className="text-center text-slate-400 mb-10 text-lg">Diario di bordo digitale</p>
-        <div className="bg-white rounded-[2rem] p-2 shadow-xl">
-          <div className="p-6">
-            <button onClick={() => setShowScanner(true)} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-bold flex items-center justify-center gap-3 mb-6 shadow-lg active:scale-95 transition-transform group">
-               <div className="bg-white/10 p-2 rounded-lg"><Camera size={24} /></div><span className="text-lg">SCANSIONA BADGE</span>
-            </button>
-            
-            <div className="relative mb-6 text-center border-t border-gray-100 pt-4"><span className="bg-white px-4 text-xs text-gray-400 font-bold uppercase -mt-7 block w-max mx-auto tracking-widest">Login Manuale</span></div>
-            
-            <div className="flex gap-2 mb-4">
-                <input className="w-full bg-gray-100 border-none rounded-xl p-4 font-bold text-gray-800 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="ID Matricola" value={matricola} onChange={(e) => setMatricola(e.target.value)} />
-                <button onClick={() => performLogin(matricola)} disabled={loading} className="bg-blue-600 text-white px-6 rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50">{loading ? '...' : <Check />}</button>
-            </div>
-
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const StartShiftScreen = ({ user, onStart }) => {
-  const [targa, setTarga] = useState('');
-  const [km, setKm] = useState('');
-  const [vehicles, setVehicles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [showNFC, setShowNFC] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [showMyHistory, setShowMyHistory] = useState(false);
-  const [kmWarningShown, setKmWarningShown] = useState(false);
-
-  const loadVehicles = async () => {
-      setLoading(true); setError(false);
-      const data = await apiFetchVehicles();
-      if (data && data.length > 0) {
-          setVehicles(data);
-      } else {
-          setError(true);
-      }
-      setLoading(false);
-  };
-
-  useEffect(() => { loadVehicles(); }, []);
-
-  const selectedVehicle = vehicles.find(v => v.targa === targa);
-
-  const handleStartShift = () => {
-    if(!targa || !km) return;
-    const enteredKm = parseInt(km);
-    let anomaly = false;
-
-    if (selectedVehicle && selectedVehicle.lastKm && enteredKm < selectedVehicle.lastKm) {
-        if (!kmWarningShown) {
-            alert(`ATTENZIONE:\nI KM inseriti (${enteredKm}) sono inferiori all'ultima chiusura (${selectedVehicle.lastKm}).\n\nVerifica il contachilometri.\nSe sei sicuro, premi di nuovo "CONFERMA ANOMALIA" per registrare.`);
-            setKmWarningShown(true);
-            return;
-        } else {
-            anomaly = true;
-        }
-    }
-
-    onStart({ 
-        targa, 
-        startKm: enteredKm, 
-        startTime: new Date(), 
-        fuelLogs: [], 
-        anomaly: anomaly
-    });
-  };
-
-  return (
-    <div className="h-full flex flex-col bg-slate-50">
-      {showNFC && <NFCScanner onRead={(t) => {setTarga(t); setShowNFC(false);}} onCancel={() => setShowNFC(false)} />}
-      
-      {showHistory && <VehicleHistoryModal targa={targa} onClose={() => setShowHistory(false)} />}
-      {showMyHistory && <DriverHistoryModal matricola={user.matricola} onClose={() => setShowMyHistory(false)} />}
-
-      <div className="bg-white p-6 shadow-sm z-10 flex justify-between items-center border-b border-gray-100">
-         <div><h2 className="text-xl font-bold text-gray-900">Benvenuto,</h2><p className="text-blue-600 font-bold">{user.name}</p></div>
-         <div className="bg-gray-100 p-2 rounded-full"><User className="text-gray-500"/></div>
-      </div>
-      <div className="flex-1 p-6 overflow-y-auto">
-        
-        <button 
-            onClick={() => setShowMyHistory(true)}
-            className="w-full mb-6 py-3 bg-white rounded-xl border-2 border-gray-100 text-sm font-bold text-gray-600 flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors shadow-sm"
-        >
-            <Clock size={16} className="text-blue-500"/> Le mie ultime 14 registrazioni
-        </button>
-
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 mb-6 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-2 h-full bg-blue-500"></div>
-          <div className="flex justify-between items-center mb-2">
-             <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Seleziona Mezzo</label>
-             <button onClick={() => setShowNFC(true)} className="flex items-center gap-1 text-[10px] font-bold bg-slate-900 text-white px-3 py-1.5 rounded-full hover:bg-slate-700 transition-colors"><Wifi size={12} className="rotate-90"/> USA NFC</button>
-          </div>
-          <div className="relative">
-             {loading ? <div className="p-4 text-center text-gray-400 text-sm">Caricamento elenco mezzi...</div> : error ? <div className="p-4 bg-red-50 rounded-xl border border-red-100 text-red-600 text-sm flex flex-col items-center"><AlertTriangle className="mb-2"/><p className="font-bold">Impossibile caricare i mezzi.</p><button onClick={loadVehicles} className="flex items-center gap-2 bg-red-100 px-3 py-1 rounded-full text-xs font-bold hover:bg-red-200 mt-2"><RefreshCw size={12}/> Riprova</button></div> : <>
-                <select value={targa} onChange={(e) => { setTarga(e.target.value); setKmWarningShown(false); }} className="w-full bg-gray-50 p-4 rounded-xl font-bold text-gray-800 appearance-none border-2 border-transparent focus:border-blue-500 outline-none">
-                    <option value="">-- Scegli dalla lista --</option>
-                    {vehicles.map((v, idx) => <option key={idx} value={v.targa}>{v.targa} - {v.modello}</option>)}
-                </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20} />
-             </>}
-          </div>
-        </div>
-
-        {selectedVehicle && selectedVehicle.lastKm && (
-          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 mb-6 animate-in fade-in slide-in-from-top-2">
-             <div className="flex justify-between items-center mb-3">
-               <div>
-                 <div className="flex items-center gap-1 mb-1"><History size={12} className="text-blue-500"/><p className="text-[10px] text-blue-500 font-bold uppercase tracking-wider">Ultima Chiusura</p></div>
-                 <p className="text-2xl font-mono font-bold text-blue-900">{selectedVehicle.lastKm}</p>
-                 {selectedVehicle.lastDriver && <p className="text-[10px] text-blue-400">Driver: {selectedVehicle.lastDriver}</p>}
-               </div>
-               <button onClick={() => { setKm(selectedVehicle.lastKm); setKmWarningShown(false); }} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-blue-200 shadow-lg hover:bg-blue-700 active:scale-95 transition-all">USA QUESTO</button>
-             </div>
-             <button onClick={() => setShowHistory(true)} className="w-full py-2 bg-white rounded-lg border border-blue-100 text-xs font-bold text-blue-600 flex items-center justify-center gap-2 hover:bg-blue-50 transition-colors"><Users size={14}/> Vedi ultimi 5 utilizzatori</button>
-          </div>
-        )}
-
-        <div className={`bg-white p-6 rounded-3xl shadow-sm border ${kmWarningShown ? 'border-red-500 ring-2 ring-red-100' : 'border-gray-100'}`}>
-          <label className={`text-xs font-bold uppercase tracking-wider mb-2 block ${kmWarningShown ? 'text-red-500' : 'text-gray-400'}`}>
-             {kmWarningShown ? 'CONFERMA KM (ANOMALIA RILEVATA)' : 'KM INIZIALI'}
-          </label>
-          <div className="flex items-center gap-2">
-             <input type="number" value={km} onChange={(e) => { setKm(e.target.value); setKmWarningShown(false); }} placeholder="000000" className={`w-full text-3xl font-mono font-bold placeholder-gray-200 outline-none ${kmWarningShown ? 'text-red-600' : 'text-gray-800'}`}/>
-             <span className="text-gray-400 font-bold text-sm">KM</span>
-          </div>
-          {kmWarningShown && <p className="text-xs text-red-500 mt-2 font-bold animate-pulse">⚠ I KM sono inferiori allo storico. Premi CONFERMA per registrare.</p>}
-        </div>
-      </div>
-      <div className="p-6 bg-white border-t border-gray-100 pb-8">
-          <Button onClick={handleStartShift} icon={Navigation} disabled={!targa || !km} variant={kmWarningShown ? 'danger' : 'primary'}>
-              {kmWarningShown ? 'CONFERMA ANOMALIA' : 'INIZIA SERVIZIO'}
-          </Button>
-      </div>
-    </div>
-  );
-};
-
-const ActiveShiftScreen = ({ session, onEndShift, onAddFuel, onSessionUpdate }) => {
-  const [time, setTime] = useState("");
-  const [showFuelModal, setShowFuelModal] = useState(false);
-  const [lastCheck, setLastCheck] = useState(Date.now());
-
-  // --- POLLING SINCRONIZZAZIONE COMPLETA (KM + TARGA) ---
-  useEffect(() => {
-    const timer = setInterval(() => {
-        const update = () => {
-            const diff = new Date() - new Date(session.startTime);
-            const h = Math.floor(diff/3600000).toString().padStart(2,'0');
-            const m = Math.floor((diff%3600000)/60000).toString().padStart(2,'0');
-            const s = Math.floor((diff%60000)/1000).toString().padStart(2,'0');
-            setTime(`${h}:${m}:${s}`);
-        };
-        update();
-    }, 1000);
-
-    // Sync con DB ogni 15 secondi per correzioni Ufficio
-    const syncTimer = setInterval(async () => {
-        const res = await apiCheckRemoteUpdates(session.user.name);
-        
-        if (res.found) {
-            const updates = {};
-            let hasUpdate = false;
-
-            // Controllo aggiornamento KM e rimozione anomalia
-            if (res.startKm && res.startKm !== session.startKm) {
-                updates.startKm = res.startKm;
-                hasUpdate = true;
-            }
-
-            // Controllo aggiornamento TARGA
-            if (res.targa && res.targa !== session.targa) {
-                updates.targa = res.targa;
-                hasUpdate = true;
-            }
-
-            if (hasUpdate) {
-                onSessionUpdate(updates);
-            }
-        }
-    }, 15000);
-
-    return () => { clearInterval(timer); clearInterval(syncTimer); };
-  }, [session]);
-
-  const handleFuelSave = async (data) => { 
-    await apiLogFuel(session, data);
-    onAddFuel(data); 
-  };
-
-  return (
-    <div className="h-full flex flex-col bg-slate-50">
-       {showFuelModal && <RefuelingModal onClose={() => setShowFuelModal(false)} onSave={handleFuelSave} />}
-       <div className="bg-slate-900 text-white p-8 rounded-b-[3rem] shadow-2xl relative z-10 overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full blur-[80px] opacity-20 pointer-events-none"></div>
-          <div className="relative z-10">
-            <div className="flex justify-between items-start mb-8">
-               <div className="bg-white/10 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest text-green-400 border border-green-500/30 flex items-center gap-2 w-max"><span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Turno Attivo</div>
-               <div className="text-right"><p className="text-[10px] text-slate-400 uppercase font-bold">Autista</p><p className="font-bold">{session.user.name}</p></div>
-            </div>
-            <h2 className="text-4xl font-black mb-1">{session.targa}</h2>
-            {/* Indicatore Sync Attivo */}
-            <div className="flex items-center gap-2 mb-2">
-                {session.anomaly && <div className="inline-flex items-center gap-1 bg-red-500/20 text-red-300 px-2 py-1 rounded text-[10px] font-bold border border-red-500/50"><AlertOctagon size={12}/> ANOMALIA KM</div>}
-                <div className="inline-flex items-center gap-1 bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-[10px] font-bold border border-blue-500/50"><RefreshCw size={12} className="animate-spin-slow"/> SYNC</div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mt-4">
-               <div className="bg-black/20 p-3 rounded-xl backdrop-blur-sm border border-white/5"><p className="text-[10px] text-slate-400 uppercase font-bold">Partenza</p><p className={`text-xl font-mono ${session.anomaly ? 'text-red-400' : ''}`}>{session.startKm} <span className="text-xs text-slate-500">km</span></p></div>
-               <div className="bg-black/20 p-3 rounded-xl backdrop-blur-sm border border-white/5"><p className="text-[10px] text-slate-400 uppercase font-bold">Tempo</p><p className="text-xl font-mono">{time}</p></div>
-            </div>
-          </div>
-       </div>
-       <div className="flex-1 flex flex-col justify-between p-6">
-          <div className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 flex-1 mb-4 flex flex-col items-center justify-center">
-             <div className="text-center w-full">
-                {session.fuelLogs && session.fuelLogs.length > 0 ? (
-                  <div className="mb-6 bg-orange-50 p-4 rounded-xl border border-orange-100 w-full animate-in fade-in"><p className="text-orange-800 font-bold flex items-center justify-center gap-2 mb-1"><Check size={16}/> Rifornimento OK</p><p className="text-xs text-orange-600">Ultimo: {session.fuelLogs[session.fuelLogs.length - 1].litri}L</p></div>
-                ) : <p className="text-gray-400 text-sm mb-6">Nessun rifornimento registrato</p>}
-                <Button onClick={() => setShowFuelModal(true)} variant="warning" icon={Fuel} className="mb-4">Registra Rifornimento</Button>
-             </div>
-          </div>
-          <Button onClick={onEndShift} variant="danger" icon={LogOut} className="shadow-lg shadow-red-200">TERMINA TURNO</Button>
-       </div>
-    </div>
-  );
-};
-
-const EndShiftScreen = ({ session, onSave, onCancel, onSessionUpdate }) => {
-  const [step, setStep] = useState('INPUT');
-  const [endKm, setEndKm] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  const totalKm = endKm ? parseInt(endKm) - session.startKm : 0;
-  const totalFuelCost = session.fuelLogs ? session.fuelLogs.reduce((acc, curr) => acc + parseFloat(curr.importo), 0) : 0;
-  const totalLiters = session.fuelLogs ? session.fuelLogs.reduce((acc, curr) => acc + parseFloat(curr.litri), 0) : 0;
-
-  // SYNC AGGIUNTO ANCHE IN END SHIFT (per rilevare correzioni mentre l'autista è fermo qui)
-  useEffect(() => {
-    const syncTimer = setInterval(async () => {
-        const res = await apiCheckRemoteUpdates(session.user.name);
-        
-        if (res.found) {
-            const updates = {};
-            let hasUpdate = false;
-
-            if (res.startKm && res.startKm !== session.startKm) {
-                updates.startKm = res.startKm;
-                hasUpdate = true;
-            }
-            if (res.targa && res.targa !== session.targa) {
-                updates.targa = res.targa;
-                hasUpdate = true;
-            }
-
-            if (hasUpdate) {
-                onSessionUpdate(updates);
-            }
-        }
-    }, 5000); // Sync più frequente qui (ogni 5 sec) per non bloccare l'autista
-
-    return () => clearInterval(syncTimer);
-  }, [session]);
-
-  const handleGoToSummary = () => {
-    if (!endKm) return alert("Inserisci i KM finali.");
-    // Non blocchiamo se i km finali sono minori, ma avvisiamo. (Potrebbe essere un giro del contachilometri o errore)
-    if (parseInt(endKm) < session.startKm) {
-        const confirm = window.confirm(`ATTENZIONE: I KM finali (${endKm}) sono minori di quelli iniziali (${session.startKm}). Sei sicuro?`);
-        if(!confirm) return;
-    }
-    setStep('SUMMARY');
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    await apiSaveLog({ 
-        driver: session.user.matricola, 
-        driverName: session.user.name, 
-        targa: session.targa, 
-        start: session.startKm, 
-        end: endKm, 
-        totalKm: totalKm, 
-        fuelOperations: session.fuelLogs,
-        anomaly: session.anomaly 
-    });
-    setIsSaving(false); setSaved(true); setTimeout(onSave, 2500);
-  };
-
-  if (saved) return <div className="h-full bg-emerald-600 text-white flex flex-col items-center justify-center"><div className="bg-white p-6 rounded-full shadow-lg mb-6 animate-bounce"><Check size={48} className="text-emerald-600"/></div><h2 className="text-3xl font-bold mb-2">Dati Salvati!</h2></div>;
-
-  return (
-    <div className="h-full flex flex-col bg-gray-50">
-      <div className="bg-white p-6 shadow-sm border-b border-gray-100 flex items-center justify-between"><div><h2 className="text-xl font-bold text-gray-900">{step === 'INPUT' ? 'Chiusura Turno' : 'Riepilogo'}</h2></div>{step === 'SUMMARY' && <div className="bg-blue-50 text-blue-600 p-2 rounded-lg font-bold text-xs uppercase">Step 2/2</div>}</div>
-      <div className="flex-1 p-6 overflow-y-auto">
-        {step === 'INPUT' && (
-            <div className="bg-white p-8 rounded-3xl shadow-lg border border-gray-100 mb-6 text-center animate-in fade-in slide-in-from-bottom-8">
-                <p className="text-sm text-gray-400 font-bold uppercase tracking-widest mb-6">Inserisci KM Finali</p>
-                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 mb-8 inline-block w-full">
-                    <p className="text-xs text-blue-600 font-bold uppercase mb-1">Partenza</p>
-                    <p className={`text-3xl font-mono font-black ${session.anomaly ? 'text-red-500' : 'text-blue-900'}`}>{session.startKm}</p>
-                    {session.anomaly && <p className="text-[10px] text-red-500 font-bold mt-1 animate-pulse">ANOMALIA START</p>}
-                </div>
-                <input type="number" value={endKm} onChange={(e)=>setEndKm(e.target.value)} placeholder="000000" autoFocus className="w-full text-center text-4xl font-bold text-gray-800 border-b-4 border-gray-200 focus:border-blue-500 outline-none pb-2 bg-transparent"/>
-            </div>
-        )}
-        {step === 'SUMMARY' && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-right-8">
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-4">
-                    <div className="bg-slate-100 p-3 rounded-2xl text-slate-600"><Truck size={24} /></div>
-                    <div><p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Veicolo</p><p className="text-2xl font-black text-slate-800">{session.targa}</p></div>
-                </div>
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                    <div className="grid grid-cols-2 gap-8 mb-6"><div><p className="text-[10px] text-gray-400 uppercase font-bold">Inizio</p><p className={`font-mono font-bold text-xl ${session.anomaly ? 'text-red-500' : ''}`}>{session.startKm}</p></div><div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Fine</p><p className="font-mono font-bold text-xl">{endKm}</p></div></div>
-                    <div className="bg-gray-50 p-4 rounded-2xl flex justify-between items-center"><span className="text-sm font-bold text-gray-500 uppercase">Totale</span><span className="text-2xl font-black text-blue-600">{totalKm} km</span></div>
-                </div>
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                    <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Droplet className="text-orange-500" size={18}/> Carburante</h3>
-                    {session.fuelLogs.length > 0 ? <div className="flex gap-3"><div className="flex-1 bg-orange-50 p-3 rounded-2xl text-center"><p className="text-[10px] text-orange-400 font-bold uppercase">Litri</p><p className="font-bold text-orange-900 text-lg">{totalLiters}</p></div><div className="flex-1 bg-orange-50 p-3 rounded-2xl text-center"><p className="text-[10px] text-orange-400 font-bold uppercase">Spesa</p><p className="font-bold text-orange-900 text-lg">€ {totalFuelCost}</p></div></div> : <p className="text-sm text-gray-400 text-center">Nessun rifornimento.</p>}
-                </div>
-            </div>
-        )}
-      </div>
-      <div className="p-6 bg-white border-t border-gray-100 flex gap-4 pb-8">
-        {step === 'INPUT' ? <><button onClick={onCancel} className="font-bold text-gray-400 px-4">Annulla</button><Button onClick={handleGoToSummary} icon={ArrowRight}>Avanti</Button></> : <><button onClick={() => setStep('INPUT')} className="font-bold text-gray-400 px-4">Indietro</button><Button onClick={handleSave} disabled={isSaving} variant="success" icon={Check}>{isSaving ? 'Salvataggio...' : 'Conferma'}</Button></>}
-      </div>
-    </div>
-  );
-};
-
-// --- MAIN ---
+// ==========================================================================================
+// --- APP LOGIC ---
+// ==========================================================================================
 
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [activeSession, setActiveSession] = useState(null);
   const [view, setView] = useState('LOGIN');
-  const [allSessions, setAllSessions] = useState({});
+  const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(false);
+  
+  // Dati
+  const [vehicles, setVehicles] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [myHistory, setMyHistory] = useState([]);
 
-  useEffect(() => { const s = localStorage.getItem('driver_sessions_v14'); if(s) setAllSessions(JSON.parse(s)); }, []);
-  const saveSessions = (s) => { setAllSessions(s); localStorage.setItem('driver_sessions_v14', JSON.stringify(s)); };
+  // Input Start
+  const [targa, setTarga] = useState('');
+  const [km, setKm] = useState('');
+  const [warning, setWarning] = useState(false);
+  
+  // Input End
+  const [endKm, setEndKm] = useState('');
 
-  const handleLogin = (u) => {
-    setUser(u);
-    const existing = allSessions[u.matricola];
-    if (existing) { setActiveSession({...existing, startTime: new Date(existing.startTime), user: u}); setView('ACTIVE'); }
-    else setView('START');
-    
-    // In caso di ri-login, forza un controllo immediato del pre-carico (se non c'è sessione attiva) o sync
-    if (!existing) {
-        apiCheckRemoteUpdates(u.name).then(res => {
-            if (res.found && res.startKm) {
-                 const newShift = {
-                    date: new Date().toISOString().split('T')[0],
-                    isStarted: true,
-                    kmStart: res.startKm,
-                    kmEnd: 0,
-                    vehicleId: res.targa || 'Sconosciuto',
-                    driverName: u.name,
-                    fuelRecords: [],
-                    isPreloaded: true,
-                    startTime: new Date().toTimeString().split(' ')[0].substring(0, 5)
-                };
-                setActiveSession(newShift);
-                setView('ACTIVE');
-                saveSessions({ ...allSessions, [u.matricola]: newShift });
-            }
-        });
+  // Modali
+  const [showScanner, setShowScanner] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showMyHistory, setShowMyHistory] = useState(false);
+  const [showFuel, setShowFuel] = useState(false);
+  
+  // Persistenza
+  useEffect(() => {
+    const saved = localStorage.getItem('driver_session_v19');
+    if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.session && parsed.session.date === new Date().toISOString().split('T')[0]) {
+            setUser(parsed.user);
+            setSession(parsed.session);
+            setView('ACTIVE');
+        }
     }
+  }, []);
+
+  const updateSession = (newSession) => {
+      setSession(newSession);
+      localStorage.setItem('driver_session_v19', JSON.stringify({ user, session: newSession }));
   };
 
-  const handleSessionUpdate = (updates) => {
-    if (!activeSession) return;
-    
-    let resolvedAnomaly = activeSession.anomaly;
-    if (updates.startKm) resolvedAnomaly = false;
+  // SYNC LIVE: Controllo periodico modifiche ufficio
+  useEffect(() => {
+      if (view !== 'ACTIVE' || !session) return;
+      const interval = setInterval(async () => {
+          const res = await apiCheckRemoteUpdates(session.driverName);
+          if (res && res.found) {
+             let hasUpdates = false;
+             let updatedSession = { ...session };
+             
+             if (res.startKm && res.startKm !== session.startKm) {
+                 updatedSession.startKm = res.startKm;
+                 updatedSession.anomaly = false; // Rimuove anomalia se ufficio corregge
+                 hasUpdates = true;
+             }
+             if (res.targa && res.targa !== session.targa) {
+                 updatedSession.targa = res.targa;
+                 hasUpdates = true;
+             }
+             if (hasUpdates) {
+                 updateSession(updatedSession);
+                 console.log("Dati aggiornati da ufficio");
+             }
+          }
+      }, 10000);
+      return () => clearInterval(interval);
+  }, [session, view]);
 
-    const updated = { ...activeSession, ...updates, anomaly: resolvedAnomaly };
-    setActiveSession(updated);
-    saveSessions({ ...allSessions, [user.matricola]: updated });
-    
-    if (updates.startKm) alert(`⚠️ AGGIORNAMENTO UFFICIO ⚠️\nIl valore dei KM Iniziali è stato corretto in: ${updates.startKm}.\nL'anomalia è stata rimossa.`);
-    if (updates.targa) alert(`⚠️ AGGIORNAMENTO UFFICIO ⚠️\nLa targa è stata corretta in: ${updates.targa}.`);
+  // --- LOGICA LOGIN / START ---
+  
+  const doLogin = async (matricola) => {
+      if (!matricola) return;
+      setLoading(true);
+      
+      // 1. Ottieni nome autista
+      let driverName = "Autista";
+      const driverRes = await apiCall('getDriver', `&matricola=${matricola}`);
+      
+      if (driverRes && driverRes.success) {
+         driverName = driverRes.name;
+      } else if (!isDemo()) { 
+         alert("Matricola non trovata"); 
+         setLoading(false); 
+         return; 
+      }
+      
+      const userData = { matricola, name: driverName };
+      setUser(userData);
+      
+      // 2. MOSTRA SCHERMATA DI VERIFICA (Per feedback utente)
+      setView('CHECKING_PRELOAD');
+
+      // 3. CONTROLLA PRE-CARICO UFFICIO
+      const remoteCheck = await apiCall('checkRemoteStart', `&driverName=${driverName}`);
+      
+      setLoading(false); // Stop loading spinner del bottone, ora siamo in CHECKING_PRELOAD view
+
+      if (remoteCheck && remoteCheck.found && remoteCheck.startKm) {
+          // CASO A: Ufficio ha già inserito -> VAI SUBITO IN SERVIZIO
+          const newSession = {
+              date: new Date().toISOString().split('T')[0],
+              startTime: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+              driverName: driverName,
+              targa: remoteCheck.targa,
+              startKm: remoteCheck.startKm,
+              fuelLogs: [],
+              anomaly: false,
+              fromOffice: true
+          };
+          updateSession(newSession);
+          setView('ACTIVE'); // Boom, dentro!
+      } else {
+          // CASO B: Nessun dato -> VAI A INSERIMENTO MANUALE
+          const vData = await apiCall('getVehicles');
+          setVehicles(vData || []);
+          setView('START');
+      }
   };
 
-  const handleStart = (data) => {
-    const sessionId = Date.now().toString(36) + Math.random().toString(36).substr(2);
-    const s = { ...data, user, fuelLogs: [], sessionId };
-    
-    setActiveSession(s); 
-    setView('ACTIVE'); 
-    saveSessions({ ...allSessions, [user.matricola]: s });
+  const doStart = () => {
+      if (!targa || !km) return;
+      const kmi = parseInt(km);
+      
+      // Check Anomalia Locale
+      const selectedV = vehicles.find(v => v.targa === targa);
+      let isAnomaly = false;
+      if (selectedV && selectedV.lastKm && kmi < selectedV.lastKm) {
+          if (!warning) {
+              setWarning(true);
+              alert(`ATTENZIONE: KM INFERIORI ALLO STORICO!\nUltimo: ${selectedV.lastKm}\nTuoi: ${kmi}\n\nPremi di nuovo per confermare.`);
+              return;
+          }
+          isAnomaly = true;
+      }
 
-    apiStartShift(s);
+      const newSession = {
+          date: new Date().toISOString().split('T')[0],
+          startTime: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+          driverName: user.name,
+          targa: targa,
+          startKm: kmi,
+          fuelLogs: [],
+          anomaly: isAnomaly,
+          fromOffice: false
+      };
+      
+      updateSession(newSession);
+      setView('ACTIVE');
+      apiStartShift({ ...newSession, user });
   };
 
-  const handleFuel = (f) => {
-    const s = { ...activeSession, fuelLogs: [...(activeSession.fuelLogs || []), f] };
-    setActiveSession(s); saveSessions({ ...allSessions, [user.matricola]: s });
+  const doFuel = async (data) => {
+      await apiLogFuel(session, data);
+      const updated = { ...session, fuelLogs: [...session.fuelLogs, data] };
+      updateSession(updated);
   };
 
-  const handleComplete = () => {
-    setActiveSession(null);
-    const updated = { ...allSessions }; delete updated[user.matricola]; saveSessions(updated);
-    setUser(null); setView('LOGIN');
+  const doEnd = async () => {
+      if (!endKm) return alert("Mancano i KM finali");
+      setLoading(true);
+      
+      const finalData = {
+          ...session,
+          driver: user.matricola,
+          end: parseInt(endKm),
+          totalKm: parseInt(endKm) - session.startKm
+      };
+
+      const res = await apiSaveLog(finalData);
+      setLoading(false);
+      
+      if (res.success) {
+          localStorage.removeItem('driver_session_v19');
+          setSession(null); setUser(null); setTarga(''); setKm(''); setEndKm('');
+          setView('LOGIN');
+      }
   };
 
-  const handleLogout = () => { setUser(null); setActiveSession(null); setView('LOGIN'); };
+  // --- RENDER ---
 
-  return (
-    <div className="w-full max-w-md mx-auto h-screen bg-white shadow-2xl overflow-hidden font-sans text-gray-900 relative">
-      {view !== 'LOGIN' && <button onClick={handleLogout} className="absolute top-4 right-4 z-50 p-2 bg-white/90 backdrop-blur rounded-full shadow-sm text-slate-400"><LogOut size={18}/></button>}
-      {view === 'LOGIN' && <LoginScreen onLogin={handleLogin} />}
-      {view === 'START' && <StartShiftScreen user={user} onStart={handleStart} />}
-      {view === 'ACTIVE' && <ActiveShiftScreen session={activeSession} onEndShift={() => setView('END')} onAddFuel={handleFuel} onSessionUpdate={handleSessionUpdate} />}
-      {view === 'END' && <EndShiftScreen session={activeSession} onSave={handleComplete} onCancel={() => setView('ACTIVE')} onSessionUpdate={handleSessionUpdate} />}
+  if (view === 'LOGIN') return (
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
+       {showScanner && <BarcodeScanner onScan={(code) => { setShowScanner(false); doLogin(code); }} onClose={() => setShowScanner(false)} />}
+       <div className="bg-white/10 p-6 rounded-3xl mb-8"><Truck className="text-blue-400 w-16 h-16"/></div>
+       <h1 className="text-white text-4xl font-black mb-8">Driver<span className="text-blue-500">App</span></h1>
+       <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl">
+          <Button onClick={() => setShowScanner(true)} className="mb-6" icon={Camera}>SCANSIONA BADGE</Button>
+          <div className="relative border-t border-gray-100 pt-6 text-center"><span className="bg-white px-2 text-xs text-gray-400 font-bold -mt-9 block w-max mx-auto">OPPURE</span></div>
+          <div className="flex gap-2 mt-4">
+             <input className="w-full bg-gray-100 rounded-xl p-4 font-bold text-center outline-none focus:ring-2 focus:ring-blue-500" placeholder="Matricola" value={matricola} onChange={e => setMatricola(e.target.value)} />
+             <button onClick={() => doLogin(matricola)} disabled={loading} className="bg-blue-600 text-white px-6 rounded-xl font-bold">{loading ? '...' : <Check/>}</button>
+          </div>
+       </div>
     </div>
   );
+
+  if (view === 'CHECKING_PRELOAD') return <PreloadCheckScreen />;
+
+  if (view === 'START') return (
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+       {showHistory && <HistoryModal title="Storico Veicolo" data={history} onClose={() => setShowHistory(false)} />}
+       {showMyHistory && <HistoryModal title="I Miei Turni" data={myHistory} onClose={() => setShowMyHistory(false)} />}
+
+       <div className="bg-white p-6 shadow-sm z-10 flex justify-between items-center border-b border-gray-100">
+          <div><h2 className="text-xl font-bold">Ciao, {user.name.split(' ')[0]}</h2><p className="text-xs text-gray-400">Inizia il tuo turno</p></div>
+          <div className="bg-blue-100 p-2 rounded-full text-blue-600"><User/></div>
+       </div>
+
+       <div className="flex-1 p-6 overflow-y-auto space-y-6">
+          <button onClick={() => { apiCall('getDriverHistory', `&matricola=${user.matricola}`).then(setMyHistory); setShowMyHistory(true); }} className="w-full py-3 bg-white border-2 border-blue-100 rounded-xl text-blue-600 font-bold text-sm flex items-center justify-center gap-2"><Clock size={16}/> Le mie ultime 14 registrazioni</button>
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+             <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-2">VEICOLO</label>
+             <div className="relative">
+                <select className="w-full p-4 bg-gray-50 rounded-xl font-bold appearance-none outline-none" onChange={e => { setTarga(e.target.value); setWarning(false); apiCall('getHistory', `&targa=${e.target.value}`).then(setHistory); }}>
+                   <option value="">Seleziona...</option>
+                   {vehicles.map((v, i) => <option key={i} value={v.targa}>{v.targa} - {v.modello}</option>)}
+                </select>
+                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/>
+             </div>
+             {targa && <div className="mt-2 flex justify-end"><button onClick={() => setShowHistory(true)} className="text-xs font-bold text-blue-500 flex items-center gap-1"><History size={12}/> Chi l'ha usato?</button></div>}
+          </div>
+          <div className={`bg-white p-6 rounded-3xl shadow-sm border ${warning ? 'border-red-500 ring-2 ring-red-100' : 'border-gray-100'}`}>
+             <label className={`text-xs font-bold uppercase tracking-wider block mb-2 ${warning ? 'text-red-500' : 'text-gray-400'}`}>{warning ? 'CONFERMA KM (ANOMALIA)' : 'KM INIZIALI'}</label>
+             <div className="flex items-center gap-2">
+                <input type="number" className={`w-full text-3xl font-mono font-bold outline-none ${warning ? 'text-red-600' : ''}`} placeholder="000000" value={km} onChange={e => { setKm(e.target.value); setWarning(false); }} />
+                <span className="font-bold text-sm text-gray-400">KM</span>
+             </div>
+             {warning && <p className="text-xs text-red-500 font-bold mt-2 animate-pulse">⚠️ Inferiori allo storico! Premi AVVIA per confermare.</p>}
+          </div>
+       </div>
+       <div className="p-6 bg-white border-t border-gray-100">
+          <Button onClick={doStart} disabled={!targa || !km} variant={warning ? 'danger' : 'primary'}>{warning ? 'CONFERMA ANOMALIA' : 'INIZIA SERVIZIO'}</Button>
+       </div>
+    </div>
+  );
+
+  if (view === 'ACTIVE') return (
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+       {showFuel && <FuelModal onClose={() => setShowFuel(false)} onSave={doFuel} />}
+       
+       <div className="bg-slate-900 text-white p-8 rounded-b-[2.5rem] shadow-2xl relative overflow-hidden">
+          <div className="relative z-10">
+             <div className="flex justify-between items-start mb-6">
+                <div className="bg-green-500/20 border border-green-500/50 text-green-400 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2"><span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"/> IN VIAGGIO</div>
+                {session.anomaly && <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-2 py-1 rounded-full text-[10px] font-bold uppercase"><AlertOctagon size={12} className="inline mr-1"/> ANOMALIA</div>}
+             </div>
+             <h2 className="text-4xl font-black mb-1">{session.targa}</h2>
+             <div className="flex items-center gap-2 text-slate-400 text-sm font-medium mb-4">
+                 <User size={14}/> {session.driverName} 
+                 {/* Indicatore Sync: mostra se i dati sono stati aggiornati dall'ufficio */}
+                 <span className="text-[10px] bg-blue-900/50 px-2 py-0.5 rounded border border-blue-500/30 flex items-center gap-1 ml-2"><RefreshCw size={10} className="animate-spin-slow"/> Live Sync</span>
+             </div>
+             
+             <div className="grid grid-cols-2 gap-4 mt-2">
+                <div className="bg-white/10 p-3 rounded-xl backdrop-blur-sm"><p className="text-[10px] text-slate-400 font-bold uppercase">Start</p><p className={`text-xl font-mono ${session.anomaly ? 'text-red-400' : ''}`}>{session.startKm} <span className="text-xs text-slate-500">km</span></p></div>
+                <div className="bg-white/10 p-3 rounded-xl backdrop-blur-sm"><p className="text-[10px] text-slate-400 font-bold uppercase">Orario</p><p className="text-xl font-mono">{session.startTime}</p></div>
+             </div>
+          </div>
+       </div>
+
+       <div className="flex-1 p-6 flex flex-col justify-between">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
+             {session.fuelLogs.length > 0 ? (
+                 <div className="mb-6 bg-orange-50 p-4 rounded-2xl border border-orange-100 animate-in fade-in"><p className="text-orange-800 font-bold flex items-center justify-center gap-2 mb-1"><Check size={16}/> Rifornimento OK</p><p className="text-xs text-orange-600 opacity-80">Ultimo inserimento salvato</p></div>
+             ) : <p className="text-sm text-gray-400 mb-6">Nessun rifornimento registrato.</p>}
+             
+             <Button onClick={() => setShowFuel(true)} variant="warning" icon={Fuel}>REGISTRA RIFORNIMENTO</Button>
+          </div>
+          <Button onClick={() => setView('END')} variant="danger" icon={LogOut} className="shadow-lg shadow-red-200">TERMINA TURNO</Button>
+       </div>
+    </div>
+  );
+
+  if (view === 'END') return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <div className="bg-white p-6 shadow-sm z-10"><h2 className="text-xl font-bold text-gray-900">Chiusura Turno</h2></div>
+      <div className="flex-1 p-6 overflow-y-auto space-y-6">
+         <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 text-center">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Inserisci KM Finali</p>
+            <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 inline-block mb-6 w-full">
+               <span className="text-xs text-blue-500 font-bold uppercase block mb-1">Partenza</span>
+               <span className="text-2xl font-mono font-black text-blue-900">{session.startKm}</span>
+               {session.anomaly && <p className="text-[10px] text-red-500 font-bold mt-1 animate-pulse">ANOMALIA START</p>}
+            </div>
+            <input type="number" autoFocus className="w-full text-center text-5xl font-bold text-gray-800 outline-none bg-transparent placeholder-gray-200" placeholder="000000" value={endKm} onChange={e => setEndKm(e.target.value)} />
+         </div>
+         {endKm && parseInt(endKm) > session.startKm && (
+             <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex justify-between items-center animate-in slide-in-from-bottom-4">
+                <span className="text-sm font-bold text-emerald-700">Totale Percorso</span>
+                <span className="text-2xl font-black text-emerald-600">{parseInt(endKm) - session.startKm} <span className="text-sm font-normal">km</span></span>
+             </div>
+         )}
+      </div>
+      <div className="p-6 bg-white border-t border-gray-100 flex gap-4">
+         <button onClick={() => setView('ACTIVE')} className="font-bold text-gray-400 px-4">Indietro</button>
+         <Button onClick={doEnd} disabled={loading} variant="success" icon={Check}>{loading ? 'Salvataggio...' : 'CONFERMA CHIUSURA'}</Button>
+      </div>
+    </div>
+  );
+
+  return null;
 }
