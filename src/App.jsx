@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useZxing } from "react-zxing"; 
-import { Truck, Navigation, Fuel, LogOut, MapPin, Camera, X, Check, Clock, Wifi, ChevronDown, Droplet, AlertTriangle, RefreshCw, History, Users, Calendar, AlertOctagon, FileText } from 'lucide-react';
+import { Truck, Navigation, Fuel, Save, User, LogOut, MapPin, Camera, X, Check, Clock, Wifi, ChevronDown, Lock, Droplet, CreditCard, ArrowRight, AlertTriangle, RefreshCw, History, Users, Calendar, AlertOctagon, FileText, Radio } from 'lucide-react';
 
 // ==========================================================================================
 // ⚠️ CONFIGURAZIONE API ⚠️
@@ -21,16 +21,18 @@ const MOCK_DATA = {
 
 const isDemo = () => API_URL.includes("INSERISCI") || API_URL === "";
 
-// API calls
 const apiCall = async (action, params = '') => {
     if (isDemo()) return null; 
     try {
         const res = await fetch(`${API_URL}?action=${action}${params}`);
         return await res.json();
-    } catch (e) { console.error(`Err ${action}`, e); return null; }
+    } catch (e) { 
+        console.error(`Err ${action}`, e); 
+        return null; 
+    }
 };
 
-// Funzione Sync (Controllo remoto aggiornamenti ufficio)
+// 1. CHECK REMOTO (Fondamentale per la richiesta)
 const apiCheckRemoteUpdates = async (driverName) => {
   if (isDemo()) return { found: false };
   try {
@@ -46,21 +48,25 @@ const apiStartShift = async (payload) => {
 
 const apiLogFuel = async (session, fuelData) => {
     if (isDemo()) return { success: true };
-    const payload = {
-      type: 'FUEL',
-      driver: session.user.matricola,
-      driverName: session.user.name,
-      targa: session.targa,
-      ...fuelData
-    };
-    await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
-    return { success: true };
+    try {
+        const payload = {
+          type: 'FUEL',
+          driver: session.user.matricola,
+          driverName: session.user.name,
+          targa: session.targa,
+          ...fuelData
+        };
+        await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+        return { success: true };
+    } catch (e) { return { success: false }; }
 };
 
 const apiSaveLog = async (payload) => {
     if (isDemo()) return { success: true };
-    await fetch(API_URL, { method: 'POST', body: JSON.stringify({ ...payload, type: 'END' }) });
-    return { success: true };
+    try {
+        await fetch(API_URL, { method: 'POST', body: JSON.stringify({ ...payload, type: 'END' }) });
+        return { success: true };
+    } catch (e) { return { success: false }; }
 };
 
 // ==========================================================================================
@@ -73,6 +79,7 @@ const Button = ({ onClick, children, variant = 'primary', className = '', disabl
     success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200",
     danger: "bg-red-500 text-white hover:bg-red-600 shadow-red-200",
     warning: "bg-orange-500 text-white hover:bg-orange-600 shadow-orange-200",
+    outline: "border-2 border-gray-200 text-gray-600 hover:bg-gray-50 bg-white"
   };
   return (
     <button onClick={onClick} disabled={disabled} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center transition-all active:scale-95 shadow-md text-sm uppercase tracking-wide ${variants[variant]} ${disabled ? 'opacity-50' : ''} ${className}`}>
@@ -81,37 +88,24 @@ const Button = ({ onClick, children, variant = 'primary', className = '', disabl
   );
 };
 
-const Input = ({ label, type = "text", value, onChange, placeholder, className = '' }) => (
+const Input = ({ label, type = "text", value, onChange, placeholder, autoFocus, className = '' }) => (
   <div className="mb-4">
     <label className="block text-xs font-bold text-gray-500 uppercase mb-1 ml-1">{label}</label>
-    <input type={type} value={value} onChange={onChange} placeholder={placeholder} className={`w-full p-4 bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-xl focus:outline-none font-bold text-gray-800 ${className}`} />
+    <input type={type} value={value} onChange={onChange} placeholder={placeholder} autoFocus={autoFocus} className={`w-full p-4 bg-gray-50 border-2 border-transparent focus:border-blue-500 focus:bg-white rounded-xl focus:outline-none font-bold text-gray-800 ${className}`} />
   </div>
 );
 
-// --- SCANNER (Ibrido: usa zxing se c'è, altrimenti fallback nativo per test) ---
+// --- SCANNER ---
 const BarcodeScanner = ({ onScan, onClose }) => {
-  const videoRef = useRef(null);
-  
-  // Setup react-zxing con gestione errori se non installato correttamente
-  let zxingRef = null;
-  try {
-     const { ref } = useZxing({ onDecodeResult(r) { if (navigator.vibrate) navigator.vibrate(200); onScan(r.getText()); } });
-     zxingRef = ref;
-  } catch(e) {}
-
-  useEffect(() => {
-    // Fallback HTML5 se zxing non parte o per test rapido
-    if (!zxingRef) {
-        const startCamera = async () => {
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            if (videoRef.current) videoRef.current.srcObject = stream;
-            setTimeout(() => onScan('12345'), 3000); // Simulazione fallback
-          } catch (err) { console.error(err); }
-        };
-        startCamera();
-    }
-  }, []);
+  const { ref } = useZxing({
+    onDecodeResult(result) {
+      const code = result.getText();
+      if (navigator.vibrate) navigator.vibrate(200);
+      onScan(code);
+    },
+    onError(error) { },
+    constraints: { video: { facingMode: "environment" } }
+  });
 
   return (
     <div className="fixed inset-0 z-[100] bg-black flex flex-col">
@@ -120,7 +114,7 @@ const BarcodeScanner = ({ onScan, onClose }) => {
          <button onClick={onClose} className="bg-white/20 p-2 rounded-full"><X size={20}/></button>
        </div>
        <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
-          <video ref={zxingRef || videoRef} autoPlay playsInline muted className="w-full h-full object-cover opacity-90" />
+          <video ref={ref} className="w-full h-full object-cover opacity-90" />
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
              <div className="w-80 h-48 border-2 border-red-500/50 rounded-xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
                 <div className="w-full h-0.5 bg-red-500 absolute top-1/2 -translate-y-1/2 animate-pulse shadow-[0_0_20px_red]"></div>
@@ -134,14 +128,14 @@ const BarcodeScanner = ({ onScan, onClose }) => {
   );
 };
 
-// --- SCHERMATA ATTESA (Fondamentale per non bloccare l'utente nel vuoto) ---
+// --- SCREEN ATTESA ---
 const PreloadCheckScreen = () => (
   <div className="flex flex-col items-center justify-center min-h-screen bg-blue-600 text-white p-8">
      <div className="bg-white/20 p-6 rounded-full mb-6 animate-pulse">
         <RefreshCw className="w-12 h-12 animate-spin" />
      </div>
      <h2 className="text-2xl font-bold mb-2">Verifica Turno...</h2>
-     <p className="text-blue-100 text-center opacity-90">Controllo se l'ufficio ha già inserito i dati di oggi.</p>
+     <p className="text-blue-100 text-center opacity-90">Controllo dati ufficio in corso.</p>
   </div>
 );
 
@@ -234,7 +228,7 @@ export default function App() {
   
   // Persistenza
   useEffect(() => {
-    const saved = localStorage.getItem('driver_session_v19');
+    const saved = localStorage.getItem('driver_session_v25');
     if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.session && parsed.session.date === new Date().toISOString().split('T')[0]) {
@@ -247,10 +241,10 @@ export default function App() {
 
   const updateSession = (newSession) => {
       setSession(newSession);
-      localStorage.setItem('driver_session_v19', JSON.stringify({ user, session: newSession }));
+      localStorage.setItem('driver_session_v25', JSON.stringify({ user, session: newSession }));
   };
 
-  // SYNC LIVE: Controllo periodico modifiche ufficio
+  // SYNC LIVE
   useEffect(() => {
       if (view !== 'ACTIVE' || !session) return;
       const interval = setInterval(async () => {
@@ -261,7 +255,7 @@ export default function App() {
              
              if (res.startKm && res.startKm !== session.startKm) {
                  updatedSession.startKm = res.startKm;
-                 updatedSession.anomaly = false; // Rimuove anomalia se ufficio corregge
+                 updatedSession.anomaly = false; 
                  hasUpdates = true;
              }
              if (res.targa && res.targa !== session.targa) {
@@ -270,27 +264,27 @@ export default function App() {
              }
              if (hasUpdates) {
                  updateSession(updatedSession);
-                 console.log("Dati aggiornati da ufficio");
+                 console.log("Sync Ufficio: Dati allineati.");
              }
           }
       }, 10000);
       return () => clearInterval(interval);
   }, [session, view]);
 
-  // --- LOGICA LOGIN / START ---
-  
+  // --- AZIONI ---
+
   const doLogin = async (matricola) => {
       if (!matricola) return;
       setLoading(true);
       
-      // 1. Ottieni nome autista
+      // 1. Recupera nome autista dal DB
       let driverName = "Autista";
       const driverRes = await apiCall('getDriver', `&matricola=${matricola}`);
       
       if (driverRes && driverRes.success) {
          driverName = driverRes.name;
       } else if (!isDemo()) { 
-         alert("Matricola non trovata"); 
+         alert("Matricola non trovata. Controlla il foglio 'Autisti'."); 
          setLoading(false); 
          return; 
       }
@@ -298,16 +292,17 @@ export default function App() {
       const userData = { matricola, name: driverName };
       setUser(userData);
       
-      // 2. MOSTRA SCHERMATA DI VERIFICA (Per feedback utente)
+      // 2. MOSTRA SCHERMATA DI ATTESA (UX Feedback)
       setView('CHECKING_PRELOAD');
 
-      // 3. CONTROLLA PRE-CARICO UFFICIO
+      // 3. CONTROLLO PRE-CARICO UFFICIO
+      // Chiede al backend se esiste una riga nel foglio ControlloKM per questo autista OGGI
       const remoteCheck = await apiCall('checkRemoteStart', `&driverName=${driverName}`);
       
-      setLoading(false); // Stop loading spinner del bottone, ora siamo in CHECKING_PRELOAD view
+      setLoading(false); 
 
       if (remoteCheck && remoteCheck.found && remoteCheck.startKm) {
-          // CASO A: Ufficio ha già inserito -> VAI SUBITO IN SERVIZIO
+          // CASO A: Ufficio ha già inserito i dati -> VAI SUBITO ALLA SCHERMATA CENTRALE
           const newSession = {
               date: new Date().toISOString().split('T')[0],
               startTime: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
@@ -316,12 +311,12 @@ export default function App() {
               startKm: remoteCheck.startKm,
               fuelLogs: [],
               anomaly: false,
-              fromOffice: true
+              fromOffice: true // Flag per indicare provenienza ufficio
           };
           updateSession(newSession);
-          setView('ACTIVE'); // Boom, dentro!
+          setView('ACTIVE'); 
       } else {
-          // CASO B: Nessun dato -> VAI A INSERIMENTO MANUALE
+          // CASO B: Nessun dato ufficio -> VAI A INSERIMENTO MANUALE (Procedura Standard)
           const vData = await apiCall('getVehicles');
           setVehicles(vData || []);
           setView('START');
@@ -381,7 +376,7 @@ export default function App() {
       setLoading(false);
       
       if (res.success) {
-          localStorage.removeItem('driver_session_v19');
+          localStorage.removeItem('driver_session_v25');
           setSession(null); setUser(null); setTarga(''); setKm(''); setEndKm('');
           setView('LOGIN');
       }
@@ -458,7 +453,6 @@ export default function App() {
              <h2 className="text-4xl font-black mb-1">{session.targa}</h2>
              <div className="flex items-center gap-2 text-slate-400 text-sm font-medium mb-4">
                  <User size={14}/> {session.driverName} 
-                 {/* Indicatore Sync: mostra se i dati sono stati aggiornati dall'ufficio */}
                  <span className="text-[10px] bg-blue-900/50 px-2 py-0.5 rounded border border-blue-500/30 flex items-center gap-1 ml-2"><RefreshCw size={10} className="animate-spin-slow"/> Live Sync</span>
              </div>
              
@@ -474,7 +468,6 @@ export default function App() {
              {session.fuelLogs.length > 0 ? (
                  <div className="mb-6 bg-orange-50 p-4 rounded-2xl border border-orange-100 animate-in fade-in"><p className="text-orange-800 font-bold flex items-center justify-center gap-2 mb-1"><Check size={16}/> Rifornimento OK</p><p className="text-xs text-orange-600 opacity-80">Ultimo inserimento salvato</p></div>
              ) : <p className="text-sm text-gray-400 mb-6">Nessun rifornimento registrato.</p>}
-             
              <Button onClick={() => setShowFuel(true)} variant="warning" icon={Fuel}>REGISTRA RIFORNIMENTO</Button>
           </div>
           <Button onClick={() => setView('END')} variant="danger" icon={LogOut} className="shadow-lg shadow-red-200">TERMINA TURNO</Button>
@@ -486,12 +479,12 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div className="bg-white p-6 shadow-sm z-10"><h2 className="text-xl font-bold text-gray-900">Chiusura Turno</h2></div>
       <div className="flex-1 p-6 overflow-y-auto space-y-6">
-         <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 text-center">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Inserisci KM Finali</p>
-            <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 inline-block mb-6 w-full">
-               <span className="text-xs text-blue-500 font-bold uppercase block mb-1">Partenza</span>
-               <span className="text-2xl font-mono font-black text-blue-900">{session.startKm}</span>
-               {session.anomaly && <p className="text-[10px] text-red-500 font-bold mt-1 animate-pulse">ANOMALIA START</p>}
+         <div className="bg-white p-8 rounded-3xl shadow-lg border border-gray-100 mb-6 text-center">
+            <p className="text-sm text-gray-400 font-bold uppercase tracking-widest mb-6">Inserisci KM Finali</p>
+            <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 mb-8 inline-block w-full">
+                <p className="text-xs text-blue-600 font-bold uppercase mb-1">Partenza</p>
+                <p className={`text-3xl font-mono font-black ${session.anomaly ? 'text-red-500' : 'text-blue-900'}`}>{session.startKm}</p>
+                {session.anomaly && <p className="text-[10px] text-red-500 font-bold mt-1 animate-pulse">ANOMALIA START</p>}
             </div>
             <input type="number" autoFocus className="w-full text-center text-5xl font-bold text-gray-800 outline-none bg-transparent placeholder-gray-200" placeholder="000000" value={endKm} onChange={e => setEndKm(e.target.value)} />
          </div>
